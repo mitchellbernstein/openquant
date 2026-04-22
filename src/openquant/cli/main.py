@@ -335,11 +335,12 @@ def strategy_run(ctx, name: str, ticker: str, mode: str):
 
 
 # ==================================================================
-# openquant game start
+# openquant game start / status / trade
 # ==================================================================
 
 @cli.group()
-def game():
+@click.pass_context
+def game(ctx):
     """Game mode - practice trading with virtual capital."""
     pass
 
@@ -347,11 +348,35 @@ def game():
 @game.command("start")
 @click.option("--strategy", "-s", default="insider-momentum", help="Strategy to use.")
 @click.option("--balance", "-b", default=10000.0, type=float, help="Starting balance.")
-def game_start(strategy: str, balance: float):
+@click.pass_context
+def game_start(ctx, strategy: str, balance: float):
     """Start a game-mode trading session."""
+    from openquant.game import GameEngine, save_session, new_session_id
+
+    session_id = new_session_id()
+    engine = GameEngine(starting_balance=balance)
+    save_session(engine, session_id, strategy)
+
+    if _json_output_enabled(ctx):
+        portfolio = engine.get_portfolio()
+        _emit_json(ctx, {
+            "command": "game_start",
+            "data": {
+                "session_id": session_id,
+                "strategy": strategy,
+                "starting_balance": balance,
+                "balance": portfolio.balance,
+                "total_value": portfolio.total_value,
+                "status": "started",
+            },
+        })
+        return
+
+    # --- Rich output (default) ---
     console.print(Panel(
         Text.assemble(
-            ("Game Mode\n", "bold cyan"),
+            ("Game Mode Started!\n", "bold cyan"),
+            (f"Session:  {session_id}\n", ""),
             (f"Strategy: {strategy}\n", "bold"),
             (f"Starting Balance: ${balance:,.2f}\n", "bold green"),
             ("Paper trading — no real money at risk.", "dim"),
@@ -359,8 +384,301 @@ def game_start(strategy: str, balance: float):
         border_style="cyan",
         padding=(1, 2),
     ))
-    # TODO: wire up game loop once game engine is implemented
-    console.print("[dim]Game engine not yet implemented. Coming soon![/dim]")
+
+
+@game.command("status")
+@click.pass_context
+def game_status(ctx):
+    """Show current game state (balance, positions, P&L)."""
+    from openquant.game import load_session, get_active_session_id
+
+    session_id = get_active_session_id()
+    if not session_id:
+        if _json_output_enabled(ctx):
+            _emit_json(ctx, {"command": "game_status", "data": {"error": "No active game session. Run 'openquant game start' first."}})
+        else:
+            console.print("[red]No active game session.[/red] Run [bold]openquant game start[/bold] first.")
+        return
+
+    result = load_session(session_id)
+    if not result:
+        if _json_output_enabled(ctx):
+            _emit_json(ctx, {"command": "game_status", "data": {"error": f"Could not load session {session_id}"}})
+        else:
+            console.print(f"[red]Could not load session {session_id}[/red]")
+        return
+
+    engine, strategy = result
+    portfolio = engine.get_portfolio()
+
+    if _json_output_enabled(ctx):
+        positions_data = {}
+        for ticker, pos in portfolio.positions.items():
+            positions_data[ticker] = {
+                "ticker": pos.ticker,
+                "shares": pos.shares,
+                "avg_price": pos.avg_price,
+                "current_price": pos.current_price,
+                "cost_basis": pos.cost_basis,
+                "market_value": pos.market_value,
+                "unrealized_pnl": pos.unrealized_pnl,
+                "unrealized_pnl_pct": pos.unrealized_pnl_pct,
+            }
+        _emit_json(ctx, {
+            "command": "game_status",
+            "data": {
+                "session_id": session_id,
+                "strategy": strategy,
+                "balance": portfolio.balance,
+                "positions": positions_data,
+                "total_value": portfolio.total_value,
+                "total_pnl": portfolio.total_pnl,
+                "total_pnl_pct": portfolio.total_pnl_pct,
+                "trade_count": portfolio.trade_count,
+                "win_count": portfolio.win_count,
+                "loss_count": portfolio.loss_count,
+                "achievements": portfolio.achievements,
+            },
+        })
+        return
+
+    # --- Rich output (default) ---
+    console.print(Panel(
+        Text.assemble(
+            ("Game Status\n", "bold cyan"),
+            (f"Session:  {session_id}\n", ""),
+            (f"Strategy: {strategy}", ""),
+        ),
+        border_style="cyan",
+        padding=(1, 2),
+    ))
+
+    # Portfolio summary
+    pnl_color = "green" if portfolio.total_pnl >= 0 else "red"
+    pnl_sign = "+" if portfolio.total_pnl >= 0 else ""
+    summary_table = Table(box=box.SIMPLE, show_header=False)
+    summary_table.add_column("Key", style="bold")
+    summary_table.add_column("Value")
+    summary_table.add_row("Portfolio Value", f"${portfolio.total_value:,.2f}")
+    summary_table.add_row("Cash Balance", f"${portfolio.balance:,.2f}")
+    summary_table.add_row("Total P/L", f"[{pnl_color}]{pnl_sign}${portfolio.total_pnl:,.2f} ({pnl_sign}{portfolio.total_pnl_pct:.1f}%)[/{pnl_color}]")
+    summary_table.add_row("Trades", f"{portfolio.trade_count} (W: {portfolio.win_count} / L: {portfolio.loss_count})")
+    if portfolio.achievements:
+        summary_table.add_row("Achievements", ", ".join(portfolio.achievements))
+    console.print(Panel(summary_table, title="[bold]Portfolio[/bold]", border_style="green", padding=(0, 1)))
+
+    # Positions table
+    if portfolio.positions:
+        pos_table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold yellow")
+        pos_table.add_column("Ticker")
+        pos_table.add_column("Shares", justify="right")
+        pos_table.add_column("Avg Price", justify="right")
+        pos_table.add_column("Current", justify="right")
+        pos_table.add_column("Value", justify="right")
+        pos_table.add_column("P/L", justify="right")
+        for pos in portfolio.positions.values():
+            pos_pnl_color = "green" if pos.unrealized_pnl >= 0 else "red"
+            pos_pnl_sign = "+" if pos.unrealized_pnl >= 0 else ""
+            pos_table.add_row(
+                pos.ticker,
+                f"{pos.shares:.2f}",
+                f"${pos.avg_price:.2f}",
+                f"${pos.current_price:.2f}",
+                f"${pos.market_value:,.2f}",
+                f"[{pos_pnl_color}]{pos_pnl_sign}${pos.unrealized_pnl:,.2f} ({pos_pnl_sign}{pos.unrealized_pnl_pct:.1f}%)[/{pos_pnl_color}]",
+            )
+        console.print(Panel(pos_table, title="[bold]Positions[/bold]", border_style="yellow", padding=(0, 1)))
+    else:
+        console.print("[dim]No open positions.[/dim]")
+
+
+@game.group("trade")
+@click.pass_context
+def game_trade(ctx):
+    """Execute trades in the current game session."""
+    pass
+
+
+def _resolve_price(ticker: str) -> Optional[float]:
+    """Try to fetch the latest price for a ticker."""
+    try:
+        resolver = DataResolver.from_env()
+        end = date.today()
+        start = end - timedelta(days=5)
+        prices = resolver.get_prices(ticker.upper(), start, end)
+        if prices:
+            return float(prices[-1].close)
+    except Exception:
+        pass
+    return None
+
+
+def _get_engine_for_trade(ctx):
+    """Load the active session's engine, or print an error and return None."""
+    from openquant.game import load_session, get_active_session_id
+
+    session_id = get_active_session_id()
+    if not session_id:
+        if _json_output_enabled(ctx):
+            _emit_json(ctx, {"command": "game_trade", "data": {"error": "No active game session. Run 'openquant game start' first."}})
+        else:
+            console.print("[red]No active game session.[/red] Run [bold]openquant game start[/bold] first.")
+        return None, None, None
+
+    result = load_session(session_id)
+    if not result:
+        if _json_output_enabled(ctx):
+            _emit_json(ctx, {"command": "game_trade", "data": {"error": f"Could not load session {session_id}"}})
+        else:
+            console.print(f"[red]Could not load session {session_id}[/red]")
+        return None, None, None
+
+    engine, strategy = result
+    return engine, session_id, strategy
+
+
+@game_trade.command("buy")
+@click.argument("ticker")
+@click.argument("qty", type=float)
+@click.option("--price", "-p", type=float, default=None, help="Execution price (defaults to latest market price).")
+@click.pass_context
+def game_trade_buy(ctx, ticker: str, qty: float, price: Optional[float]):
+    """Buy shares of a ticker."""
+    from openquant.game import save_session
+
+    engine, session_id, strategy = _get_engine_for_trade(ctx)
+    if engine is None:
+        return
+
+    ticker = ticker.upper()
+
+    if price is None:
+        price = _resolve_price(ticker)
+        if price is None:
+            if _json_output_enabled(ctx):
+                _emit_json(ctx, {"command": "game_trade", "data": {"error": f"Cannot resolve price for {ticker}. Use --price to specify."}})
+            else:
+                console.print(f"[red]Cannot resolve price for {ticker}.[/red] Use [bold]--price[/bold] to specify.")
+            return
+
+    result = engine.execute_trade("BUY", ticker, qty, price)
+    new_achievements = engine.check_achievements()
+    save_session(engine, session_id, strategy)
+
+    if _json_output_enabled(ctx):
+        _emit_json(ctx, {
+            "command": "game_trade",
+            "data": {
+                "success": result.success,
+                "action": result.action,
+                "ticker": result.ticker,
+                "shares": result.shares,
+                "price": result.price,
+                "total_cost": result.total_cost,
+                "new_balance": result.new_balance,
+                "position_shares": result.position_shares,
+                "message": result.message,
+                "new_achievements": new_achievements,
+            },
+        })
+        return
+
+    # --- Rich output (default) ---
+    if result.success:
+        console.print(Panel(
+            Text.assemble(
+                ("TRADE FILLED\n", "bold green"),
+                (result.message, ""),
+            ),
+            border_style="green",
+            padding=(0, 1),
+        ))
+    else:
+        console.print(Panel(
+            Text.assemble(
+                ("TRADE REJECTED\n", "bold red"),
+                (result.message, ""),
+            ),
+            border_style="red",
+            padding=(0, 1),
+        ))
+
+    if new_achievements:
+        for ach_name in new_achievements:
+            ach = engine.achievements[ach_name]
+            console.print(f"[bold yellow]Achievement Unlocked: [{ach.icon}] {ach.title} — {ach.description}[/bold yellow]")
+
+
+@game_trade.command("sell")
+@click.argument("ticker")
+@click.argument("qty", type=float)
+@click.option("--price", "-p", type=float, default=None, help="Execution price (defaults to latest market price).")
+@click.pass_context
+def game_trade_sell(ctx, ticker: str, qty: float, price: Optional[float]):
+    """Sell shares of a ticker (close a position)."""
+    from openquant.game import save_session
+
+    engine, session_id, strategy = _get_engine_for_trade(ctx)
+    if engine is None:
+        return
+
+    ticker = ticker.upper()
+
+    if price is None:
+        price = _resolve_price(ticker)
+        if price is None:
+            if _json_output_enabled(ctx):
+                _emit_json(ctx, {"command": "game_trade", "data": {"error": f"Cannot resolve price for {ticker}. Use --price to specify."}})
+            else:
+                console.print(f"[red]Cannot resolve price for {ticker}.[/red] Use [bold]--price[/bold] to specify.")
+            return
+
+    result = engine.execute_trade("SELL", ticker, qty, price)
+    new_achievements = engine.check_achievements()
+    save_session(engine, session_id, strategy)
+
+    if _json_output_enabled(ctx):
+        _emit_json(ctx, {
+            "command": "game_trade",
+            "data": {
+                "success": result.success,
+                "action": result.action,
+                "ticker": result.ticker,
+                "shares": result.shares,
+                "price": result.price,
+                "total_cost": result.total_cost,
+                "new_balance": result.new_balance,
+                "position_shares": result.position_shares,
+                "message": result.message,
+                "new_achievements": new_achievements,
+            },
+        })
+        return
+
+    # --- Rich output (default) ---
+    if result.success:
+        console.print(Panel(
+            Text.assemble(
+                ("TRADE FILLED\n", "bold green"),
+                (result.message, ""),
+            ),
+            border_style="green",
+            padding=(0, 1),
+        ))
+    else:
+        console.print(Panel(
+            Text.assemble(
+                ("TRADE REJECTED\n", "bold red"),
+                (result.message, ""),
+            ),
+            border_style="red",
+            padding=(0, 1),
+        ))
+
+    if new_achievements:
+        for ach_name in new_achievements:
+            ach = engine.achievements[ach_name]
+            console.print(f"[bold yellow]Achievement Unlocked: [{ach.icon}] {ach.title} — {ach.description}[/bold yellow]")
 
 
 # ==================================================================
