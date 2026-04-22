@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import sys
 from datetime import date, timedelta
 from typing import Optional
 
@@ -477,3 +480,130 @@ def _generate_signals(prices, trades, estimates) -> list:
                 })
 
     return signals
+
+
+# ==================================================================
+# openquant tui
+# ==================================================================
+
+@cli.command()
+@click.option("--mode", "-m", default="paper", type=click.Choice(["paper", "game", "live"]), help="Trading mode.")
+def tui(mode: str):
+    """Launch the OpenQuant Textual TUI (sentient Bloomberg terminal)."""
+    resolver = DataResolver.from_env()
+    broker = None
+
+    if mode in ("paper", "game"):
+        from openquant.brokers.paper import PaperBroker
+        broker = PaperBroker(starting_balance=10000.0)
+
+    try:
+        from openquant.tui.app import run_tui
+        run_tui(broker=broker, resolver=resolver, mode=mode)
+    except ImportError as exc:
+        console.print(f"[red]TUI dependencies not installed: {exc}[/red]")
+        console.print("[dim]Install with: pip3 install textual asciichartpy[/dim]")
+        sys.exit(1)
+
+
+# ==================================================================
+# openquant chat
+# ==================================================================
+
+@cli.command()
+@click.option("--model", default=None, help="LLM model to use (e.g. openai/gpt-4o-mini).")
+@click.option("--mode", "-m", "trading_mode", default="paper", type=click.Choice(["paper", "game", "live"]), help="Trading mode.")
+def chat(model: Optional[str], trading_mode: str):
+    """Launch the AI agent chat in terminal (non-TUI)."""
+    from openquant.agent.loop import run_agent_terminal, AgentLoop, EventType
+    from openquant.agent.providers import get_default_model
+
+    resolver = DataResolver.from_env()
+    broker = None
+
+    if trading_mode in ("paper", "game"):
+        from openquant.brokers.paper import PaperBroker
+        broker = PaperBroker(starting_balance=10000.0)
+
+    model_str = model or get_default_model()
+
+    console.print(Panel(
+        f"[bold cyan]OpenQuant Chat[/bold cyan]\n"
+        f"Model: {model_str}\n"
+        f"Mode: {trading_mode}\n"
+        f"Type 'quit' to exit, 'help' for commands",
+        border_style="cyan",
+    ))
+
+    agent = AgentLoop(
+        model=model_str,
+        broker=broker,
+        resolver=resolver,
+        mode=trading_mode,
+    )
+
+    while True:
+        try:
+            user_input = console.input("[bold green]> [/bold green]").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[dim]Goodbye![/dim]")
+            break
+
+        if not user_input:
+            continue
+
+        if user_input.lower() in ("quit", "exit", "q"):
+            console.print("[dim]Goodbye![/dim]")
+            break
+
+        if user_input.lower() == "help":
+            console.print(Panel(
+                "Commands:\n"
+                "  Analyze TICKER — Full stock analysis\n"
+                "  Buy/SELL TICKER SHARES — Place order\n"
+                "  Portfolio — Show portfolio summary\n"
+                "  Risk TICKER — Risk assessment\n"
+                "  Quit — Exit chat",
+                title="Help",
+                border_style="yellow",
+            ))
+            continue
+
+        # Run the agent
+        console.print()
+        try:
+            asyncio.run(_run_chat_turn(agent, user_input))
+        except Exception as exc:
+            console.print(f"[red]Error: {exc}[/red]")
+        console.print()
+
+
+async def _run_chat_turn(agent, user_message: str) -> None:
+    """Run a single chat turn and print events."""
+    from openquant.agent.loop import EventType
+
+    streaming_text = ""
+    async for event in agent.run(user_message):
+        if event.type == EventType.TEXT:
+            console.print(event.data, end="")
+            streaming_text += event.data
+        elif event.type == EventType.TEXT_DONE:
+            if streaming_text:
+                console.print()  # Newline
+            streaming_text = ""
+        elif event.type == EventType.TOOL_CALL_START:
+            console.print(f"\n  [bold yellow]Calling {event.tool_name}...[/bold yellow]")
+        elif event.type == EventType.TOOL_RESULT:
+            result = event.data
+            if isinstance(result, (dict, list)):
+                result_str = json.dumps(result, indent=2, default=str)[:500]
+            else:
+                result_str = str(result)[:500]
+            console.print(f"  [dim]Result: {result_str}[/dim]")
+        elif event.type == EventType.BLOCKED:
+            console.print(f"\n  [bold red]BLOCKED: {event.data}[/bold red]")
+        elif event.type == EventType.ERROR:
+            console.print(f"\n  [red]ERROR: {event.data}[/red]")
+        elif event.type == EventType.TURN_COMPLETE:
+            if event.data and not streaming_text:
+                console.print(event.data)

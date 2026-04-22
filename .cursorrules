@@ -1,0 +1,55 @@
+# OpenQuant — Cursor AI Rules
+
+## MCP Connection
+
+Start: `pip install openquant[mcp] && openquant-mcp`
+Default URL: `http://localhost:8000/sse` (SSE transport)
+Alternative: `openquant-mcp` as stdio command
+
+## Tool Quick Reference
+
+| Tool | Purpose | Key Args |
+|------|---------|----------|
+| `openquant_analyze` | Full stock analysis (prices + insider + risk) | `ticker`, `days=90` |
+| `openquant_insider_scan` | Insider buying/selling scan | `ticker`, `days=90` |
+| `openquant_risk_assessment` | VaR, drawdown, Kelly, risk level | `tickers` (csv), `days=252` |
+| `openquant_strategy_list` | List 4 built-in strategies | — |
+| `openquant_strategy_run` | Generate trade signal | `strategy_name`, `ticker` |
+| `openquant_backtest` | Historical strategy validation | `strategy_name`, `ticker`, `days=252` |
+| `openquant_portfolio_status` | Positions, balance, P&L | — |
+| `openquant_trade_execute` | Paper trade execution | `action`, `ticker`, `shares`, `price` |
+| `openquant_trade_history` | Recent trades log | `limit=20` |
+| `openquant_game_status` | Game mode stats | — |
+
+## Workflow
+
+1. `openquant_analyze` → get the picture
+2. `openquant_insider_scan` + `openquant_strategy_run` → dig deeper
+3. `openquant_risk_assessment` → MANDATORY before any trade
+4. Confirm confidence >= 40 → `openquant_trade_execute`
+
+## Risk Rules
+
+- **0.25x Kelly** for position sizing (built into tools, do not override)
+- **Max 10% of portfolio** per single position (system-enforced hard limit)
+- **Confidence < 40** = HOLD (monitor only, do not trade)
+- **Always show risk assessment** before executing any trade
+- **Never execute live trades** without explicit user confirmation
+
+## Signal Scale
+
+- Agent signals: -1.0 (strong sell) to +1.0 (strong buy)
+  - +0.3 to +1.0 = BULLISH
+  - -0.3 to +0.3 = NEUTRAL
+  - -1.0 to -0.3 = BEARISH
+- Strategy confidence: 0–100 (act only if >= 40)
+- Insider score: -100 to +100 (>= 60 = STRONG BUY, <= -60 = STRONG SELL)
+
+## Data Units (QuantFetch)
+
+- Earnings: in cents (250 = $2.50)
+- Revenue: in thousands (50000 = $50M)
+
+## Strategies
+
+`insider-momentum` | `value-deep` | `earnings-surge` | `technical-breakout`
