@@ -6,8 +6,9 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from dataclasses import asdict
 
 import click
 from rich.console import Console
@@ -29,17 +30,84 @@ console = Console()
 
 
 # ==================================================================
+# JSON output helpers
+# ==================================================================
+
+def _json_output_enabled(ctx: click.Context) -> bool:
+    """Check whether --json mode is active."""
+    return bool(ctx.obj.get("json_output"))
+
+
+def _emit_json(ctx: click.Context, payload: dict) -> None:
+    """Write a structured JSON blob to stdout.
+
+    Automatically adds a ``timestamp`` field in ISO-8601 UTC.
+    """
+    payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+    click.echo(json.dumps(payload, default=str, indent=2))
+
+
+def _serialize_price(p) -> dict:
+    return {
+        "date": str(p.date),
+        "open": p.open,
+        "high": p.high,
+        "low": p.low,
+        "close": p.close,
+        "volume": p.volume,
+        "source": p.source,
+    }
+
+
+def _serialize_insider_trade(t) -> dict:
+    return {
+        "insider_name": t.insider_name,
+        "title": t.title,
+        "transaction_type": t.transaction_type,
+        "shares": t.shares,
+        "price": t.price,
+        "value": t.value,
+        "date": str(t.date),
+        "source": t.source,
+    }
+
+
+def _serialize_estimate(e) -> dict:
+    return {
+        "estimate_type": e.estimate_type,
+        "period": e.period,
+        "consensus_avg": e.consensus_avg,
+        "consensus_low": e.consensus_low,
+        "consensus_high": e.consensus_high,
+        "number_of_analysts": e.number_of_analysts,
+        "source": e.source,
+    }
+
+
+def _serialize_company_info(info) -> dict:
+    return {
+        "name": info.name,
+        "sector": info.sector,
+        "industry": info.industry,
+        "market_cap": info.market_cap,
+        "cik": info.cik,
+    }
+
+
+# ==================================================================
 # Root group
 # ==================================================================
 
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging.")
+@click.option("--json", "json_output", is_flag=True, help="Output structured JSON instead of Rich formatting.")
 @click.version_option(version="0.1.0", prog_name="openquant")
 @click.pass_context
-def cli(ctx, verbose):
+def cli(ctx, verbose, json_output):
     """OpenQuant - The open-source operating system for quant trading."""
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+    ctx.obj["json_output"] = json_output
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -52,13 +120,53 @@ def cli(ctx, verbose):
 @click.argument("ticker")
 @click.option("--days", "-d", default=90, help="Lookback period in days.")
 @click.option("--provider", "-p", default=None, help="Force a specific data provider.")
-def run(ticker: str, days: int, provider: Optional[str]):
+@click.pass_context
+def run(ctx, ticker: str, days: int, provider: Optional[str]):
     """Run full analysis on a ticker.
 
     Shows prices, insider trades, analyst estimates, and risk assessment.
     """
+    ticker = ticker.upper()
+
+    if _json_output_enabled(ctx):
+        resolver = DataResolver.from_env()
+        end = date.today()
+        start = end - timedelta(days=days)
+
+        prices = resolver.get_prices(ticker, start, end)
+        trades = resolver.get_insider_trades(ticker, days=days)
+        estimates = resolver.get_analyst_estimates(ticker)
+        info = resolver.get_company_info(ticker)
+
+        data = {}
+        if info:
+            data["company_info"] = _serialize_company_info(info)
+        if prices:
+            data["prices"] = [_serialize_price(p) for p in prices]
+        else:
+            data["prices"] = []
+        if trades:
+            data["insider_trades"] = [_serialize_insider_trade(t) for t in trades]
+        else:
+            data["insider_trades"] = []
+        if estimates:
+            data["analyst_estimates"] = [_serialize_estimate(e) for e in estimates]
+        else:
+            data["analyst_estimates"] = []
+
+        risk_report = _compute_basic_risk(prices)
+        data["risk"] = risk_report if risk_report else {}
+
+        _emit_json(ctx, {
+            "command": "run",
+            "ticker": ticker,
+            "data": data,
+        })
+        return
+
+    # --- Rich output (default) ---
     console.print(Panel(
-        f"[bold cyan]OpenQuant[/bold cyan] — Running full analysis for [bold]{ticker.upper()}[/bold]",
+        f"[bold cyan]OpenQuant[/bold cyan] — Running full analysis for [bold]{ticker}[/bold]",
         border_style="cyan",
     ))
 
@@ -68,16 +176,16 @@ def run(ticker: str, days: int, provider: Optional[str]):
 
     # Fetch data
     with console.status("[bold green]Fetching price data..."):
-        prices = resolver.get_prices(ticker.upper(), start, end)
+        prices = resolver.get_prices(ticker, start, end)
 
     with console.status("[bold magenta]Fetching insider trades..."):
-        trades = resolver.get_insider_trades(ticker.upper(), days=days)
+        trades = resolver.get_insider_trades(ticker, days=days)
 
     with console.status("[bold yellow]Fetching analyst estimates..."):
-        estimates = resolver.get_analyst_estimates(ticker.upper())
+        estimates = resolver.get_analyst_estimates(ticker)
 
     with console.status("[bold blue]Fetching company info..."):
-        info = resolver.get_company_info(ticker.upper())
+        info = resolver.get_company_info(ticker)
 
     # Display company info
     if info:
@@ -93,13 +201,13 @@ def run(ticker: str, days: int, provider: Optional[str]):
 
     # Display prices
     if prices:
-        console.print(format_price_panel(prices, title=f"{ticker.upper()} Prices"))
+        console.print(format_price_panel(prices, title=f"{ticker} Prices"))
     else:
         console.print("[dim]No price data available.[/dim]")
 
     # Display insider trades
     if trades:
-        console.print(format_insider_panel(trades, title=f"{ticker.upper()} Insider Trades"))
+        console.print(format_insider_panel(trades, title=f"{ticker} Insider Trades"))
     else:
         console.print("[dim]No insider trade data available.[/dim]")
 
@@ -123,14 +231,14 @@ def run(ticker: str, days: int, provider: Optional[str]):
                 str(e.number_of_analysts),
                 e.source,
             )
-        console.print(Panel(est_table, title=f"[bold]{ticker.upper()} Analyst Estimates[/bold]", border_style="yellow", padding=(0, 1)))
+        console.print(Panel(est_table, title=f"[bold]{ticker} Analyst Estimates[/bold]", border_style="yellow", padding=(0, 1)))
     else:
         console.print("[dim]No analyst estimate data available.[/dim]")
 
     # Risk assessment (placeholder — full risk engine not yet implemented)
     risk_report = _compute_basic_risk(prices)
     if risk_report:
-        console.print(format_risk_panel(risk_report, title=f"{ticker.upper()} Risk"))
+        console.print(format_risk_panel(risk_report, title=f"{ticker} Risk"))
     else:
         console.print("[dim]Insufficient data for risk assessment.[/dim]")
 
@@ -140,27 +248,37 @@ def run(ticker: str, days: int, provider: Optional[str]):
 # ==================================================================
 
 @cli.group()
-def strategy():
+@click.pass_context
+def strategy(ctx):
     """Manage and run trading strategies."""
     pass
 
 
 @strategy.command("list")
-def strategy_list():
+@click.pass_context
+def strategy_list(ctx):
     """List available strategies."""
+    known_strategies = [
+        {"name": "insider-momentum", "description": "Trade on insider buying momentum signals"},
+        {"name": "value-deep", "description": "Deep value investing based on fundamentals"},
+        {"name": "earnings-surge", "description": "Capture post-earnings announcement drift"},
+        {"name": "technical-breakout", "description": "Breakout-based technical trading"},
+    ]
+
+    if _json_output_enabled(ctx):
+        _emit_json(ctx, {
+            "command": "strategy_list",
+            "data": known_strategies,
+        })
+        return
+
+    # --- Rich output (default) ---
     table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold green")
     table.add_column("Strategy", style="bold")
     table.add_column("Description")
 
-    # These come from the entry_points in pyproject.toml
-    known_strategies = [
-        ("insider-momentum", "Trade on insider buying momentum signals"),
-        ("value-deep", "Deep value investing based on fundamentals"),
-        ("earnings-surge", "Capture post-earnings announcement drift"),
-        ("technical-breakout", "Breakout-based technical trading"),
-    ]
-    for name, desc in known_strategies:
-        table.add_row(name, desc)
+    for s in known_strategies:
+        table.add_row(s["name"], s["description"])
 
     console.print(Panel(table, title="[bold]Available Strategies[/bold]", border_style="green", padding=(0, 1)))
 
@@ -169,28 +287,48 @@ def strategy_list():
 @click.argument("name")
 @click.option("--ticker", "-t", required=True, help="Ticker symbol to trade.")
 @click.option("--mode", "-m", default="paper", type=click.Choice(["paper", "game", "live"]), help="Execution mode.")
-def strategy_run(name: str, ticker: str, mode: str):
+@click.pass_context
+def strategy_run(ctx, name: str, ticker: str, mode: str):
     """Run a named strategy on a ticker."""
-    console.print(Panel(
-        f"Running [bold]{name}[/bold] on [bold]{ticker.upper()}[/bold] in [bold]{mode}[/bold] mode",
-        border_style="green",
-    ))
+    ticker = ticker.upper()
 
     resolver = DataResolver.from_env()
     end = date.today()
     start = end - timedelta(days=90)
 
-    with console.status("[bold green]Loading data..."):
-        prices = resolver.get_prices(ticker.upper(), start, end)
-        trades = resolver.get_insider_trades(ticker.upper())
+    prices = resolver.get_prices(ticker, start, end)
+    trades = resolver.get_insider_trades(ticker)
+
+    if _json_output_enabled(ctx):
+        data = {
+            "strategy": name,
+            "ticker": ticker,
+            "mode": mode,
+            "prices_available": bool(prices),
+            "insider_trades_available": bool(trades),
+            "prices": [_serialize_price(p) for p in prices] if prices else [],
+            "insider_trades": [_serialize_insider_trade(t) for t in trades] if trades else [],
+            "status": "initialized",
+        }
+        _emit_json(ctx, {
+            "command": "strategy_run",
+            "data": data,
+        })
+        return
+
+    # --- Rich output (default) ---
+    console.print(Panel(
+        f"Running [bold]{name}[/bold] on [bold]{ticker}[/bold] in [bold]{mode}[/bold] mode",
+        border_style="green",
+    ))
 
     if not prices:
         console.print("[red]No price data available — cannot run strategy.[/red]")
         return
 
-    console.print(format_price_panel(prices, title=f"{ticker.upper()} Data"))
+    console.print(format_price_panel(prices, title=f"{ticker} Data"))
     if trades:
-        console.print(format_insider_panel(trades, title=f"{ticker.upper()} Insider"))
+        console.print(format_insider_panel(trades, title=f"{ticker} Insider"))
 
     console.print(f"\n[bold green]Strategy '{name}' initialized.[/bold green] Execution mode: {mode}")
     # TODO: wire up actual strategy execution once strategy classes are implemented
@@ -232,23 +370,34 @@ def game_start(strategy: str, balance: float):
 @cli.command()
 @click.argument("ticker")
 @click.option("--days", "-d", default=252, help="Lookback in trading days.")
-def risk(ticker: str, days: int):
+@click.pass_context
+def risk(ctx, ticker: str, days: int):
     """Run risk assessment on a ticker."""
-    console.print(Panel(
-        f"[bold red]Risk Assessment[/bold red] — {ticker.upper()}",
-        border_style="red",
-    ))
+    ticker = ticker.upper()
 
     resolver = DataResolver.from_env()
     end = date.today()
     start = end - timedelta(days=days)
 
-    with console.status("[bold red]Computing risk metrics..."):
-        prices = resolver.get_prices(ticker.upper(), start, end)
-
+    prices = resolver.get_prices(ticker, start, end)
     report = _compute_basic_risk(prices)
+
+    if _json_output_enabled(ctx):
+        _emit_json(ctx, {
+            "command": "risk",
+            "ticker": ticker,
+            "data": report if report else {},
+        })
+        return
+
+    # --- Rich output (default) ---
+    console.print(Panel(
+        f"[bold red]Risk Assessment[/bold red] — {ticker}",
+        border_style="red",
+    ))
+
     if report:
-        console.print(format_risk_panel(report, title=f"{ticker.upper()} Risk"))
+        console.print(format_risk_panel(report, title=f"{ticker} Risk"))
     else:
         console.print("[red]Insufficient data for risk assessment.[/red]")
 
@@ -260,20 +409,46 @@ def risk(ticker: str, days: int):
 @cli.command()
 @click.argument("ticker")
 @click.option("--days", "-d", default=90, help="Lookback in days.")
-def insider(ticker: str, days: int):
+@click.pass_context
+def insider(ctx, ticker: str, days: int):
     """Show insider trading analysis for a ticker."""
+    ticker = ticker.upper()
+
+    resolver = DataResolver.from_env()
+    trades = resolver.get_insider_trades(ticker, days=days)
+
+    if _json_output_enabled(ctx):
+        data = {
+            "trades": [_serialize_insider_trade(t) for t in trades] if trades else [],
+        }
+        if trades:
+            buys = [t for t in trades if t.transaction_type == "BUY"]
+            sells = [t for t in trades if t.transaction_type == "SELL"]
+            buy_value = sum(t.value for t in buys)
+            sell_value = sum(t.value for t in sells)
+            sentiment = "BULLISH" if buy_value > sell_value else "BEARISH" if sell_value > buy_value else "NEUTRAL"
+            data["summary"] = {
+                "buy_transactions": len(buys),
+                "sell_transactions": len(sells),
+                "total_buy_value": buy_value,
+                "total_sell_value": sell_value,
+                "net_sentiment": sentiment,
+            }
+        _emit_json(ctx, {
+            "command": "insider",
+            "ticker": ticker,
+            "data": data,
+        })
+        return
+
+    # --- Rich output (default) ---
     console.print(Panel(
-        f"[bold magenta]Insider Trading[/bold magenta] — {ticker.upper()}",
+        f"[bold magenta]Insider Trading[/bold magenta] — {ticker}",
         border_style="magenta",
     ))
 
-    resolver = DataResolver.from_env()
-
-    with console.status("[bold magenta]Fetching insider trades..."):
-        trades = resolver.get_insider_trades(ticker.upper(), days=days)
-
     if trades:
-        console.print(format_insider_panel(trades, title=f"{ticker.upper()} Insider Trades"))
+        console.print(format_insider_panel(trades, title=f"{ticker} Insider Trades"))
 
         # Summary stats
         buys = [t for t in trades if t.transaction_type == "BUY"]
@@ -304,22 +479,41 @@ def insider(ticker: str, days: int):
 @cli.command()
 @click.argument("ticker")
 @click.option("--days", "-d", default=90, help="Lookback period in days.")
-def analyze(ticker: str, days: int):
+@click.pass_context
+def analyze(ctx, ticker: str, days: int):
     """Full AI analysis of a ticker."""
-    console.print(Panel(
-        f"[bold yellow]AI Analysis[/bold yellow] — {ticker.upper()}",
-        border_style="yellow",
-    ))
+    ticker = ticker.upper()
 
     resolver = DataResolver.from_env()
     end = date.today()
     start = end - timedelta(days=days)
 
-    with console.status("[bold green]Gathering data..."):
-        prices = resolver.get_prices(ticker.upper(), start, end)
-        trades = resolver.get_insider_trades(ticker.upper(), days=days)
-        estimates = resolver.get_analyst_estimates(ticker.upper())
-        info = resolver.get_company_info(ticker.upper())
+    prices = resolver.get_prices(ticker, start, end)
+    trades = resolver.get_insider_trades(ticker, days=days)
+    estimates = resolver.get_analyst_estimates(ticker)
+    info = resolver.get_company_info(ticker)
+    signals = _generate_signals(prices, trades, estimates)
+
+    if _json_output_enabled(ctx):
+        data = {}
+        if info:
+            data["company_info"] = _serialize_company_info(info)
+        data["prices"] = [_serialize_price(p) for p in prices] if prices else []
+        data["insider_trades"] = [_serialize_insider_trade(t) for t in trades] if trades else []
+        data["analyst_estimates"] = [_serialize_estimate(e) for e in estimates] if estimates else []
+        data["signals"] = signals if signals else []
+        _emit_json(ctx, {
+            "command": "analyze",
+            "ticker": ticker,
+            "data": data,
+        })
+        return
+
+    # --- Rich output (default) ---
+    console.print(Panel(
+        f"[bold yellow]AI Analysis[/bold yellow] — {ticker}",
+        border_style="yellow",
+    ))
 
     # Show data panels
     if info:
@@ -329,15 +523,13 @@ def analyze(ticker: str, days: int):
         ))
 
     if prices:
-        console.print(format_price_panel(prices, title=f"{ticker.upper()} Prices"))
+        console.print(format_price_panel(prices, title=f"{ticker} Prices"))
 
     if trades:
-        console.print(format_insider_panel(trades, title=f"{ticker.upper()} Insider"))
+        console.print(format_insider_panel(trades, title=f"{ticker} Insider"))
 
-    # Generate placeholder agent signals
-    signals = _generate_signals(prices, trades, estimates)
     if signals:
-        console.print(format_analysis_panel(signals, title=f"{ticker.upper()} AI Signals"))
+        console.print(format_analysis_panel(signals, title=f"{ticker} AI Signals"))
     else:
         console.print("[dim]Insufficient data for AI analysis.[/dim]")
 
