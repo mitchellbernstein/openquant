@@ -33,7 +33,7 @@ Activate this skill when the user:
 
 The OpenQuant MCP server must be running. Start it:
 ```bash
-pip install openquant[mcp]
+pip install openquant-cli[mcp]
 openquant-mcp
 ```
 

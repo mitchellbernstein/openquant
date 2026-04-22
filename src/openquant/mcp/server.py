@@ -50,7 +50,7 @@ def create_server() -> "FastMCP":
     if not _MCP_AVAILABLE:
         raise ImportError(
             "The 'mcp' package is required for the MCP server. "
-            "Install with: pip install openquant[mcp]"
+            "Install with: pip install openquant-cli[mcp]"
         )
 
     mcp = FastMCP(
@@ -418,7 +418,7 @@ def create_server() -> "FastMCP":
 def main() -> None:
     """Run the MCP server with SSE transport."""
     if not _MCP_AVAILABLE:
-        print("Error: The 'mcp' package is required. Install with: pip install openquant[mcp]")
+        print("Error: The 'mcp' package is required. Install with: pip install openquant-cli[mcp]")
         raise SystemExit(1)
 
     server = create_server()

@@ -7,7 +7,7 @@ This file tells Claude Code how to use OpenQuant's trading tools via the MCP ser
 OpenQuant exposes an MCP server with SSE transport. Start it with:
 
 ```bash
-pip install openquant[mcp]
+pip install openquant-cli[mcp]
 openquant-mcp
 ```
 

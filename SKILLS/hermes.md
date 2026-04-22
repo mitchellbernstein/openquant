@@ -8,7 +8,7 @@ OpenQuant is an open-source quant trading framework with MCP server integration.
 
 Start the server:
 ```bash
-pip install openquant[mcp]
+pip install openquant-cli[mcp]
 openquant-mcp
 ```
 

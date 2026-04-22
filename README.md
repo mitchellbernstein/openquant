@@ -8,7 +8,7 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/openquant.svg)](https://pypi.org/project/openquant/)
+[![PyPI](https://img.shields.io/pypi/v/openquant-cli.svg)](https://pypi.org/project/openquant-cli/)
 
 </div>
 
@@ -37,7 +37,7 @@ Each agent generates independent signals. A risk engine sizes positions. You dec
 
 ```bash
 # Install
-pip install openquant
+pip install openquant-cli
 
 # Run — no API key needed (uses yfinance by default)
 openquant analyze AAPL
@@ -303,7 +303,7 @@ src/openquant/
 ## Install
 
 ```bash
-pip install openquant
+pip install openquant-cli
 ```
 
 That's it. No API keys required. Works immediately with free data sources.

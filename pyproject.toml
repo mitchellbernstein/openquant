@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openquant"
+name = "openquant-cli"
 version = "0.1.0"
 description = "The open-source operating system for quant trading"
 readme = "README.md"
