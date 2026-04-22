@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openquant"
+version = "0.1.0"
+description = "The open-source operating system for quant trading"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Mitchell Bernstein", email = "mitchellbernstein@mac.com"},
+]
+keywords = ["quant", "trading", "finance", "ai", "hedge-fund", "insider-trading", "risk"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+dependencies = [
+    "click>=8.1",
+    "httpx>=0.25",
+    "yfinance>=0.2.36",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "rich>=13.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0", "starlette", "uvicorn"]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[project.scripts]
+openquant = "openquant.cli:cli"
+openquant-mcp = "openquant.mcp.server:main"
+
+[project.entry-points."openquant.strategies"]
+insider-momentum = "openquant.strategies.insider_momentum:InsiderMomentumStrategy"
+value-deep = "openquant.strategies.value_deep:ValueDeepStrategy"
+earnings-surge = "openquant.strategies.earnings_surge:EarningsSurgeStrategy"
+technical-breakout = "openquant.strategies.technical_breakout:TechnicalBreakoutStrategy"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

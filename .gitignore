@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+*.egg
+.ruff_cache/
+.pytest_cache/
+~/.openquant/
