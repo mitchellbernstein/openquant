@@ -1,350 +1,350 @@
+<div align="center">
+
 # OpenQuant
 
-**The open-source operating system for quant trading**
+### The open-source operating system for quant trading
 
+**Works without any API key. Zero config. Zero cost.**
+
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/openquant.svg)](https://pypi.org/project/openquant/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Stars](https://img.shields.io/github/stars/openquant/openquant.svg)](https://github.com/openquant/openquant)
 
-> Works without any API key. Zero config. Zero cost.
-
-OpenQuant is an open-source quant trading framework that combines insider trading analysis, fundamental screening, technical signals, and risk management into a single system you can run from your terminal.
-
-No LLM. No API key required. Pure quantitative analysis.
+</div>
 
 ---
 
-## Quick Start
+> **This is a proof of concept for an AI-powered personal hedge fund.**
+> It uses a team of AI agents to analyze stocks, manage risk, and execute strategies — from your terminal.
+
+---
+
+## The Agents
+
+| Agent | What It Does |
+|-------|-------------|
+| 🕵️ **Insider Sentiment** | Tracks Form 4 filings. Scores insider buying/selling momentum. |
+| 📈 **Momentum** | Detects breakouts, trend shifts, and regime changes from OHLCV data. |
+| 🔍 **Value Deep** | Digs into fundamentals — P/E, FCF, margins, balance sheet health. |
+| 💰 **Earnings Surge** | Monitors EPS surprises, guidance shifts, and post-earnings drift. |
+| 📊 **Analyst Consensus** | Aggregates Wall Street estimates and tracks revision momentum. |
+
+Each agent generates independent signals. A risk engine sizes positions. You decide what to trade.
+
+---
+
+## 30-Second Demo
 
 ```bash
+# Install
 pip install openquant
-openquant run AAPL
+
+# Run — no API key needed (uses yfinance by default)
+openquant analyze AAPL
+
+# Get structured JSON for your own agent
+openquant --json analyze AAPL
+
+# Check risk
+openquant risk TSLA
+
+# Track insiders
+openquant insider NVDA
+
+# Run a strategy
+openquant strategy run insider-momentum -t AAPL
 ```
 
-That's it. OpenQuant ships with free data providers (yfinance, SEC EDGAR) and works out of the box.
+```
+$ openquant analyze AAPL
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  AAPL · Apple Inc. · Technology · Consumer Electronics
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Price:    $198.42    Vol: 52,841,300    MCap: $3.01T
+  52w High: $260.10    52w Low: $164.08
+
+  ┌─ Signals ──────────────────────────────────────────┐
+  │  🕵️ Insider Sentiment    BULLISH  (+0.72)          │
+  │     3 insider buys in last 30 days                  │
+  │                                                     │
+  │  📈 Momentum            NEUTRAL  (+0.18)           │
+  │     Price below 50-day MA, RSI: 44.2               │
+  │                                                     │
+  │  🔍 Value Deep           BULLISH  (+0.65)          │
+  │     P/E 28.4x, FCF yield 3.8%, margins expanding   │
+  │                                                     │
+  │  💰 Earnings Surge       BULLISH  (+0.81)          │
+  │     Last EPS: +8.2% surprise, guidance raised       │
+  │                                                     │
+  │  📊 Analyst Consensus    BULLISH  (+0.54)          │
+  │     22 Buy / 6 Hold / 2 Sell, PT $225 avg          │
+  └─────────────────────────────────────────────────────┘
+
+  Risk:    Vol 22.4%  |  MaxDD 13.8%  |  Sharpe 0.99  |  VaR95 -2.0%
+```
+
+---
+
+## How It Works
+
+```
+  Your Agent (Claude Code, Hermes, Codex...)
+       │
+       ▼
+  ┌─────────────────────────────────────────┐
+  │           OpenQuant Engine              │
+  │                                         │
+  │  ┌──────────┐  ┌──────────┐  ┌───────┐ │
+  │  │ Data      │  │ Compute  │  │ Exec  │ │
+  │  │           │  │          │  │       │ │
+  │  │ yfinance  │  │ 5 agents │  │ Paper │ │
+  │  │ SEC EDGAR │  │ Risk     │  │ Alpaca│ │
+  │  │ QuantFetch│  │ Strategy │  │ Kalshi│ │
+  │  └──────────┘  └──────────┘  └───────┘ │
+  │                                         │
+  │  Interfaces: CLI · TUI · MCP · JSON    │
+  └─────────────────────────────────────────┘
+       │              │            │
+       ▼              ▼            ▼
+    Terminal      AI Agents    Your Code
+```
+
+**Three layers, one engine:**
+1. **Data** — yfinance (free), SEC EDGAR (free), or QuantFetch API (premium)
+2. **Compute** — 5 analysis agents, risk engine, Monte Carlo VaR, strategy framework
+3. **Execution** — Paper trading, Alpaca (stocks), Kalshi (prediction markets)
+
+---
+
+## Built-in Strategies
+
+| Strategy | Signal | Style |
+|----------|--------|-------|
+| `insider-momentum` | Insider buying + price momentum | Aggressive growth |
+| `value-deep` | Fundamental value + margin expansion | Patient value |
+| `earnings-surge` | EPS surprise + guidance drift | Event-driven |
+| `technical-breakout` | Breakout + volume confirmation | Momentum |
 
 ```bash
-# Full analysis of a stock
-openquant run TSLA
+# List all strategies
+openquant strategy list
 
-# Insider trading scan
-openquant insider AAPL
+# Run a strategy in paper mode
+openquant strategy run insider-momentum -t AAPL -m paper
 
-# Risk assessment
-openquant risk MSFT
-
-# Run a specific strategy
-openquant strategy run insider-momentum --ticker AAPL
-
-# Paper trading game mode
-openquant game start --balance 10000
+# Run in game mode (gamified paper trading with achievements)
+openquant game start -s earnings-surge -b 100000
 ```
 
 ---
 
 ## Game Mode
 
-Paper trading with gamification. Start with $10,000 in virtual capital, trade based on strategy signals, and unlock achievements.
+Paper trading, but fun. Track your P&L, earn achievements, and compete on the leaderboard.
 
-```
-$ openquant game start --balance 10000
-
-+------------------------------------------+
-|           GAME MODE                       |
-|  Strategy: insider-momentum              |
-|  Starting Balance: $10,000.00            |
-|  Paper trading -- no real money at risk.  |
-+------------------------------------------+
-
-> BUY 10 AAPL @ $178.50
-[FILLED] BUY 10.00 AAPL @ $178.50 = $1,785.00 | Balance: $8,215.00
-
-> SELL 10 AAPL @ $185.20
-[SOLD] 10.00 AAPL @ $185.20 (P/L: +$67.00)
-
-Portfolio Value: $10,067.00 | P/L: +0.67%
-Trades: 2 | Wins: 1 | Losses: 0
-
-[*] Achievement Unlocked: First Trade
+```bash
+openquant game start -s value-deep -b 100000
 ```
 
-### Achievements
-
-| Icon | Achievement | How to Unlock |
-|------|------------|---------------|
-| >    | First Trade | Execute your first trade |
-| ~    | 3-Day Streak | Trade 3 days in a row |
-| +    | 5 Wins | Close 5 profitable trades |
-| ^    | 10% Return | Achieve 10% portfolio return |
-| <>   | Diamond Hands | Hold a position for 30+ days |
-| !    | Quick Draw | Trade within 5 minutes of a signal |
+- Start with $100K virtual capital
+- Execute trades through any strategy
+- Track wins, streaks, and risk management
+- Upgrade to Signal Mode (real signals, manual approval) or Live Mode (automated with risk limits)
 
 ---
 
-## Built-in Strategies
+## For AI Agents
 
-### Insider Momentum
+OpenQuant is designed to be the **hands** for any AI agent — Claude Code, Hermes, Codex, Cursor.
 
-Trade on insider buying momentum signals.
-
-- **Trigger**: 3+ insider buys in same week OR CEO purchase
-- **Entry**: Insider signal score > +40
-- **Exit**: Stop loss at -5%, take profit at +15%, or 30-day time stop
-- **Position size**: Half Kelly based on historical win rate
+### MCP Server
 
 ```bash
-openquant strategy run insider-momentum --ticker AAPL
+# Start the MCP server (SSE transport)
+openquant-mcp
+
+# 10 tools available:
+# openquant_analyze, openquant_strategy_run, openquant_risk_assessment,
+# openquant_insider_scan, openquant_backtest, openquant_trade_execute,
+# openquant_portfolio_status, openquant_game_status, openquant_trade_history,
+# openquant_strategy_list
 ```
 
-### Value Deep
+Connect from Claude Desktop, Cursor, or any MCP client:
 
-Deep value investing based on fundamental criteria.
+```json
+{
+  "mcpServers": {
+    "openquant": {
+      "url": "http://localhost:8001/sse"
+    }
+  }
+}
+```
 
-- **Criteria**: P/E < 15, ROE > 15%, Debt/Equity < 0.5, insider buying
-- **Entry**: All value criteria met + insider score > 0
-- **Exit**: P/E > 25 or fundamental deterioration
-- **Hold**: Long-term
+### JSON Output
+
+Every CLI command supports `--json` for programmatic consumption:
 
 ```bash
-openquant strategy run value-deep --ticker BRK-B
+openquant --json analyze AAPL | python3 -m json.tool
 ```
 
-### Earnings Surge
-
-Capture post-earnings announcement drift.
-
-- **Pre-earnings**: Buy if estimate revisions trending up + insider buying
-- **Post-earnings**: Sell 2 days after if beat, sell immediately if miss
-- **Hold**: Short-term (10-day time stop)
-
-```bash
-openquant strategy run earnings-surge --ticker NVDA
+```json
+{
+  "command": "analyze",
+  "ticker": "AAPL",
+  "data": {
+    "company_info": {"name": "Apple Inc.", "sector": "Technology"},
+    "prices": [{"date": "2026-04-21", "close": 198.42, "volume": 52841300}],
+    "signals": {
+      "InsiderSentiment": {"score": 0.72, "direction": "bullish"},
+      "Momentum": {"score": 0.18, "direction": "neutral"}
+    },
+    "risk": {"volatility": 22.4, "sharpe_ratio": 0.99, "var_95": -2.0}
+  },
+  "timestamp": "2026-04-22T14:30:00Z"
+}
 ```
 
-### Technical Breakout
+### Skill Files
 
-Trend-following with insider confirmation.
+Drop-in files for popular AI tools:
 
-- **Entry**: Price breaks above 50-day SMA with 2x volume + insider buying
-- **Exit**: Price falls below 20-day SMA or stop at -3%
-- **Hold**: Medium-term
-
-```bash
-openquant strategy run technical-breakout --ticker MSFT
-```
+- **CLAUDE.md** — Claude Code instructions (MCP tools, trading workflow, risk rules)
+- **AGENTS.md** — Codex/OpenCode instructions
+- **.cursorrules** — Cursor AI rules
+- **SKILLS/hermes.md** — Hermes agent skill (signal interpretation, position sizing)
 
 ---
 
-## Brokers
+## QuantFetch Integration
 
-OpenQuant supports a permission model for trade execution:
+OpenQuant works out of the box with free data (yfinance + SEC EDGAR). For production-grade data, connect [QuantFetch](https://quantfetch.ai):
 
-```
-Game Mode (paper) --> Signal Mode (alerts only) --> Live Mode (real money)
-```
-
-You must explicitly confirm live trading. There are no accidents.
-
-### Paper Broker (default)
-
-In-memory paper trading. No API key required. Used by game mode.
-
-```python
-from openquant.brokers import PaperBroker
-
-broker = PaperBroker(starting_balance=10000)
-result = broker.place_order("AAPL", "BUY", 10, limit_price=150.00)
-```
-
-### Alpaca Broker
-
-Commission-free trading via Alpaca. Paper keys by default.
+| | Free (yfinance) | QuantFetch Pro |
+|---|---|---|
+| **Stock prices** | ~800 tickers, 5yr history | 8,000+ tickers, 30yr history |
+| **Financials** | Basic income/balance | Full XBRL with line items |
+| **Insider trades** | Limited | All Form 4 filings, real-time |
+| **SEC filings** | Basic metadata | Full-text search, section parsing |
+| **Earnings** | Basic EPS | Surprises, guidance, consensus |
+| **Crypto** | — | BTC, ETH, SOL + 50 more |
+| **Speed** | Rate-limited | 100 req/day free, unlimited Pro |
+| **Cost** | $0 | $29.99/mo |
 
 ```bash
-pip install alpaca-trade-api
-export ALPACA_API_KEY=your_key
-export ALPACA_SECRET_KEY=your_secret
+# Set your QuantFetch API key
+export QUANTFETCH_API_KEY=qf_demo_key_2026
+
+# All commands automatically use QuantFetch when key is set
+openquant analyze AAPL
 ```
 
-```python
-from openquant.brokers import AlpacaBroker
+Get a free API key at [quantfetch.ai](https://quantfetch.ai) — 100 requests/day, no credit card.
 
-# Paper trading (default)
-broker = AlpacaBroker()
+---
 
-# Live trading (requires explicit confirmation)
-broker = AlpacaBroker(paper=False, live_confirmed=True)
-```
+## Risk Engine
 
-### Kalshi Broker
+Built-in risk management that doesn't let you blow up:
 
-Prediction market contracts on Kalshi.
+- **Value at Risk (VaR)** — 95% and 99% confidence intervals
+- **Monte Carlo simulation** — 10,000 path projections
+- **Kelly criterion** — Optimal position sizing (with 0.25x conservative multiplier)
+- **Max drawdown** — Historical worst-case tracking
+- **Beta** — Market correlation for hedging
+- **Stop-loss guards** — Automatic position limits
 
 ```bash
-pip install kalshi-trade-api
-export KALSHI_API_KEY=your_key
-export KALSHI_API_SECRET=your_secret
-```
-
-```python
-from openquant.brokers import KalshiBroker
-
-broker = KalshiBroker()  # Demo mode
-result = broker.place_order("INXD-2412-1000", "BUY", 10)
+openquant risk AAPL
+# Volatility: 22.4%  |  Max Drawdown: 13.8%  |  Sharpe: 0.99
+# VaR 95%: -2.0%  |  Beta: 1.24  |  Rating: MODERATE
 ```
 
 ---
 
-## MCP Integration
+## Insider Monitor
 
-Connect OpenQuant to any AI agent via the Model Context Protocol.
+Real-time scoring of insider Form 4 filings:
 
 ```bash
-pip install openquant[mcp]
-openquant-mcp  # Starts the MCP server with SSE transport
+openquant insider AAPL
 ```
 
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `openquant_analyze` | Full analysis of a ticker |
-| `openquant_strategy_run` | Run a specific strategy |
-| `openquant_strategy_list` | List available strategies |
-| `openquant_portfolio_status` | Current portfolio state |
-| `openquant_risk_assessment` | Portfolio risk metrics |
-| `openquant_insider_scan` | Insider trading scan |
-| `openquant_backtest` | Backtest a strategy |
-| `openquant_game_status` | Game mode stats |
-| `openquant_trade_execute` | Execute a paper trade |
-| `openquant_trade_history` | Trade history |
-
-### Example Agent Usage
-
-```python
-from openquant.mcp import create_server
-
-server = create_server()
-server.run(transport="sse")  # SSE for remote access
-```
-
-Connect from any MCP client (Claude, GPT, LangChain, etc.) and your agent can analyze stocks, run strategies, and execute paper trades.
-
----
-
-## How It Works
-
-OpenQuant runs 5 analysis agents in parallel, each producing a quantitative signal:
-
-1. **Insider Agent** - Detects cluster buys, CEO activity, unusual trade sizes
-2. **Value Agent** - Evaluates P/E, ROE, debt ratios, free cash flow
-3. **Growth Agent** - Revenue growth, earnings acceleration, forward estimates
-4. **Technical Agent** - SMA crossovers, RSI, MACD, volume patterns
-5. **Sentiment Agent** - News flow, analyst consensus, estimate revisions
-
-Strategies combine these signals with entry/exit rules and position sizing.
-
-Data flows through a resolver chain: QuantFetch (if key) -> yfinance -> SEC EDGAR. Falls back automatically. Works without any API key.
-
----
-
-## Comparison
-
-| Feature | OpenQuant | ai-hedge-fund | OpenBB |
-|---------|-----------|---------------|--------|
-| Insider trading analysis | Yes | No | No |
-| Game mode | Yes | No | No |
-| Works without API key | Yes | No | Partial |
-| Strategy backtesting | Yes | No | No |
-| MCP server | Yes | No | No |
-| Risk engine (VaR, Kelly) | Yes | No | No |
-| Prediction markets (Kalshi) | Yes | No | No |
-| Broker integration | Yes | No | No |
-| Position sizing | Yes | No | No |
-| No LLM required | Yes | No | Yes |
-| Open source | Yes | Yes | Yes |
+- Scores each filing: buy vs sell, size, officer vs director
+- Aggregates 30-day insider sentiment score
+- Flags cluster buying (multiple insiders buying simultaneously)
+- Cross-references with price action for confirmation
 
 ---
 
 ## Architecture
 
 ```
-openquant/
-  agents/         -- 5 analysis agents (insider, value, growth, technical, sentiment)
-  strategies/     -- 4 built-in strategies (insider-momentum, value-deep, earnings-surge, technical-breakout)
-  risk/           -- Risk engine (VaR, Kelly, position sizing, drawdown)
-  insider/        -- Insider monitor + scorer (cluster detection, CEO signals)
-  brokers/        -- Paper, Alpaca, Kalshi brokers
-  game/           -- Game engine + achievements
-  data/           -- Data providers + resolver chain
-  mcp/            -- FastMCP server for AI agent integration
-  cli/            -- Terminal interface (Click + Rich)
-  config.py      -- YAML config management
-  storage.py     -- Local JSONL/YAML storage
+src/openquant/
+├── agent/          # Dual-loop agent (20-turn limit, streaming, risk hooks)
+├── agents/         # 5 analysis agents (insider, momentum, value, earnings, analyst)
+├── brokers/        # Paper, Alpaca, Kalshi execution
+├── cli/            # Click-based CLI (--json, Rich output)
+├── data/           # Pluggable data protocol (yfinance, SEC, QuantFetch)
+├── game/           # Game mode engine (achievements, leaderboard)
+├── insider/        # Insider scoring (Form 4, cluster detection)
+├── mcp/            # MCP server (SSE transport, 10 tools)
+├── risk/           # Risk engine (VaR, Monte Carlo, Kelly, sizing)
+├── strategies/     # 4 built-in strategies + framework
+└── tui/            # Textual TUI (watchlist, chat, portfolio panels)
 ```
 
 ---
 
-## Configuration
+## Install
 
-OpenQuant stores config in `~/.openquant/config.yaml`. It's created automatically on first run.
-
-```yaml
-brokers:
-  paper:
-    enabled: true
-    mode: game
-  alpaca:
-    enabled: false
-    mode: game
-    api_key_env: ALPACA_API_KEY
-    api_secret_env: ALPACA_SECRET_KEY
-
-strategy_defaults:
-  default_strategy: insider-momentum
-  position_size_max: 0.25
-  stop_loss_default: 0.05
-  take_profit_default: 0.15
-  confidence_threshold: 40
-
-game_starting_balance: 10000
+```bash
+pip install openquant
 ```
 
-API keys are read from environment variables, never stored in config.
+That's it. No API keys required. Works immediately with free data sources.
+
+### With QuantFetch (optional)
+
+```bash
+export QUANTFETCH_API_KEY=your_key_here
+```
+
+Get a free key at [quantfetch.ai](https://quantfetch.ai).
 
 ---
 
-## Storage
+## Comparison
 
-All data stays local in `~/.openquant/`:
-
-- `trades.jsonl` - Append-only trade log
-- `positions.yaml` - Current positions
-- `state.yaml` - Game engine state
-- `strategies/` - Strategy results
-- `config.yaml` - Configuration
-
-No data leaves your machine.
-
----
-
-## Contributing
-
-We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-Areas we need help with:
-- More strategies (mean reversion, pairs trading, etc.)
-- Additional broker integrations (Interactive Brokers, TD Ameritrade)
-- More data providers (Polygon, Alpha Vantage)
-- Web dashboard / UI
-- Tests and documentation
+| Feature | OpenQuant | virattt/ai-hedge-fund | OpenBB |
+|---------|-----------|----------------------|--------|
+| **Free data** | yfinance + SEC EDGAR | Requires API key | Requires API key |
+| **Risk engine** | VaR, Monte Carlo, Kelly | None | Basic |
+| **Strategy framework** | 4 built-in + custom | Single analysis script | None |
+| **Paper trading** | Game mode + achievements | None | None |
+| **Live execution** | Alpaca, Kalshi | None | None |
+| **MCP server** | 10 tools | None | None |
+| **AI agent support** | JSON, MCP, skill files | CLI only | SDK |
+| **Insider monitoring** | Real-time scoring | Basic agent | Basic |
+| **--json output** | All commands | None | Partial |
+| **License** | MIT | MIT | MIT |
 
 ---
 
-## License
+## Disclaimer
 
-MIT License. See [LICENSE](LICENSE) for details.
+This is an educational and research tool. It is **not** financial advice. Trading involves substantial risk of loss. Past performance does not guarantee future results. Always do your own research and never trade money you can't afford to lose.
 
 ---
 
-**Built by traders, for traders. No API key required.**
+<div align="center">
+
+**Built by [Mitchell Bernstein](https://x.com/mitchellbe) · Powered by [QuantFetch](https://quantfetch.ai)**
+
+[Get a free API key](https://quantfetch.ai) · [Report a bug](https://github.com/mitchellbernstein/openquant/issues) · [Contribute](CONTRIBUTING.md)
+
+</div>
