@@ -21,6 +21,11 @@ Usage:
     server = create_server()
     # Run with SSE transport:
     server.run(transport="sse")
+
+Environment variables:
+    MCP_TRANSPORT  - "sse" (default) or "stdio"
+    MCP_HOST       - SSE bind host (default: "127.0.0.1")
+    MCP_PORT       - SSE bind port (default: 8000)
 """
 
 from __future__ import annotations
@@ -38,8 +43,12 @@ except ImportError:
     _MCP_AVAILABLE = False
 
 
-def create_server() -> "FastMCP":
+def create_server(host: str = "127.0.0.1", port: int = 8000) -> "FastMCP":
     """Create the OpenQuant MCP server.
+
+    Args:
+        host: Bind address for SSE transport (default: "127.0.0.1").
+        port: Bind port for SSE transport (default: 8000).
 
     Returns:
         FastMCP server instance with all tools registered.
@@ -56,6 +65,8 @@ def create_server() -> "FastMCP":
     mcp = FastMCP(
         name="openquant",
         instructions="OpenQuant - The open-source operating system for quant trading. Analyze stocks, run strategies, manage portfolios, and execute trades.",
+        host=host,
+        port=port,
     )
 
     # ── Helper to lazily import and create data resolver ────────────
@@ -416,13 +427,30 @@ def create_server() -> "FastMCP":
 
 
 def main() -> None:
-    """Run the MCP server with SSE transport."""
+    """Run the MCP server.
+
+    Supports both SSE and stdio transports.
+    Transport is selected via the MCP_TRANSPORT env var (default: "sse").
+    SSE host/port are configurable via MCP_HOST / MCP_PORT env vars.
+    """
+    import os
+
     if not _MCP_AVAILABLE:
         print("Error: The 'mcp' package is required. Install with: pip install openquant-cli[mcp]")
         raise SystemExit(1)
 
-    server = create_server()
-    server.run(transport="sse")
+    transport = os.environ.get("MCP_TRANSPORT", "sse").lower()
+    host = os.environ.get("MCP_HOST", "127.0.0.1")
+    port = int(os.environ.get("MCP_PORT", "8000"))
+
+    server = create_server(host=host, port=port)
+
+    if transport == "stdio":
+        server.run(transport="stdio")
+    else:
+        print(f"Starting OpenQuant MCP server on {host}:{port} (SSE transport)")
+        print(f"Connect at: http://{host}:{port}/sse")
+        server.run(transport="sse")
 
 
 if __name__ == "__main__":
