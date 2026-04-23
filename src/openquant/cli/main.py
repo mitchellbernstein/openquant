@@ -283,6 +283,39 @@ def strategy_list(ctx):
     console.print(Panel(table, title="[bold]Available Strategies[/bold]", border_style="green", padding=(0, 1)))
 
 
+def _get_strategy(name: str):
+    """Instantiate a strategy by name. Returns (strategy_instance, error_message)."""
+    from openquant.strategies import (
+        InsiderMomentumStrategy,
+        ValueDeepStrategy,
+        EarningsSurgeStrategy,
+        TechnicalBreakoutStrategy,
+    )
+
+    strategy_map = {
+        "insider-momentum": InsiderMomentumStrategy,
+        "value-deep": ValueDeepStrategy,
+        "earnings-surge": EarningsSurgeStrategy,
+        "technical-breakout": TechnicalBreakoutStrategy,
+    }
+
+    cls = strategy_map.get(name)
+    if cls is None:
+        return None, f"Unknown strategy '{name}'. Available: {', '.join(strategy_map.keys())}"
+    return cls(), None
+
+
+def _serialize_signal(s) -> dict:
+    """Serialize a SignalResult to a JSON-friendly dict."""
+    return {
+        "agent_name": s.agent_name,
+        "signal": s.signal,
+        "direction": s.direction,
+        "confidence": s.confidence,
+        "reasoning": s.reasoning,
+    }
+
+
 @strategy.command("run")
 @click.argument("name")
 @click.option("--ticker", "-t", required=True, help="Ticker symbol to trade.")
@@ -292,24 +325,41 @@ def strategy_run(ctx, name: str, ticker: str, mode: str):
     """Run a named strategy on a ticker."""
     ticker = ticker.upper()
 
-    resolver = DataResolver.from_env()
-    end = date.today()
-    start = end - timedelta(days=90)
+    # Instantiate the strategy
+    strategy, err = _get_strategy(name)
+    if err:
+        if _json_output_enabled(ctx):
+            _emit_json(ctx, {"command": "strategy_run", "data": {"error": err}})
+        else:
+            console.print(f"[red]{err}[/red]")
+        return
 
-    prices = resolver.get_prices(ticker, start, end)
-    trades = resolver.get_insider_trades(ticker)
+    resolver = DataResolver.from_env()
+
+    # Generate the signal
+    result = strategy.generate_signal(ticker, resolver)
 
     if _json_output_enabled(ctx):
         data = {
             "strategy": name,
             "ticker": ticker,
             "mode": mode,
-            "prices_available": bool(prices),
-            "insider_trades_available": bool(trades),
-            "prices": [_serialize_price(p) for p in prices] if prices else [],
-            "insider_trades": [_serialize_insider_trade(t) for t in trades] if trades else [],
-            "status": "initialized",
+            "action": result.action,
+            "confidence": result.confidence,
+            "entry_price": result.entry_price,
+            "stop_loss": result.stop_loss,
+            "take_profit": result.take_profit,
+            "position_size_pct": result.position_size_pct,
+            "reasoning": result.reasoning,
+            "signals": [_serialize_signal(s) for s in result.signals],
+            "status": "completed",
         }
+        if result.risk_report:
+            data["risk"] = {
+                "risk_level": result.risk_report.risk_level,
+                "var_95": result.risk_report.var_95,
+                "max_drawdown": result.risk_report.max_drawdown,
+            }
         _emit_json(ctx, {
             "command": "strategy_run",
             "data": data,
@@ -318,20 +368,56 @@ def strategy_run(ctx, name: str, ticker: str, mode: str):
 
     # --- Rich output (default) ---
     console.print(Panel(
-        f"Running [bold]{name}[/bold] on [bold]{ticker}[/bold] in [bold]{mode}[/bold] mode",
+        f"Strategy: [bold]{name}[/bold] | Ticker: [bold]{ticker}[/bold] | Mode: [bold]{mode}[/bold]",
         border_style="green",
     ))
 
-    if not prices:
-        console.print("[red]No price data available — cannot run strategy.[/red]")
-        return
+    # Signal result panel
+    action_color = {"BUY": "green", "SELL": "red", "HOLD": "yellow"}.get(result.action, "white")
+    conf_color = "green" if result.confidence >= 60 else "yellow" if result.confidence >= 40 else "red"
 
-    console.print(format_price_panel(prices, title=f"{ticker} Data"))
-    if trades:
-        console.print(format_insider_panel(trades, title=f"{ticker} Insider"))
+    signal_table = Table(box=box.SIMPLE, show_header=False)
+    signal_table.add_column("Key", style="bold")
+    signal_table.add_column("Value")
+    signal_table.add_row("Action", f"[{action_color}]{result.action}[/{action_color}]")
+    signal_table.add_row("Confidence", f"[{conf_color}]{result.confidence}/100[/{conf_color}]")
+    if result.entry_price > 0:
+        signal_table.add_row("Entry Price", f"${result.entry_price:.2f}")
+        signal_table.add_row("Stop Loss", f"${result.stop_loss:.2f}")
+        signal_table.add_row("Take Profit", f"${result.take_profit:.2f}")
+    signal_table.add_row("Position Size", f"{result.position_size_pct:.1%} of portfolio")
+    signal_table.add_row("Reasoning", result.reasoning)
 
-    console.print(f"\n[bold green]Strategy '{name}' initialized.[/bold green] Execution mode: {mode}")
-    # TODO: wire up actual strategy execution once strategy classes are implemented
+    console.print(Panel(signal_table, title="[bold]Strategy Signal[/bold]", border_style="cyan", padding=(0, 1)))
+
+    # Show contributing agent signals
+    if result.signals:
+        sig_table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold magenta")
+        sig_table.add_column("Agent")
+        sig_table.add_column("Direction")
+        sig_table.add_column("Confidence", justify="right")
+        sig_table.add_column("Reasoning")
+        for s in result.signals:
+            dir_color = "green" if s.direction == "BULLISH" else "red" if s.direction == "BEARISH" else "yellow"
+            sig_table.add_row(
+                s.agent_name,
+                f"[{dir_color}]{s.direction}[/{dir_color}]",
+                f"{s.confidence}/100",
+                s.reasoning[:80],
+            )
+        console.print(Panel(sig_table, title="[bold]Agent Signals[/bold]", border_style="magenta", padding=(0, 1)))
+
+    # Risk level
+    if result.risk_report:
+        risk_color = {"HIGH": "red", "MODERATE": "yellow", "LOW": "green", "VERY LOW": "cyan"}.get(result.risk_report.risk_level, "white")
+        console.print(f"Risk Level: [{risk_color}]{result.risk_report.risk_level}[/{risk_color}]")
+
+    # Show price data if available
+    end = date.today()
+    start = end - timedelta(days=90)
+    prices = resolver.get_prices(ticker, start, end)
+    if prices:
+        console.print(format_price_panel(prices[-10:], title=f"{ticker} Recent Prices"))
 
 
 # ==================================================================
